@@ -1,7 +1,10 @@
 import { GEOJSON_TYPES } from '../core/Constants';
 import { isNil, UID, isObject } from '../core/util';
 import Extent from '../geo/Extent';
-import { Geometry, GeometryCollection, LineString, Curve } from '../geometry';
+import PointExtent from '../geo/PointExtent';
+import { Geometry, LineString, Curve } from '../geometry';
+import { isFunction } from '../core/util';
+import { createFilter, getFilterFeature } from '@maptalks/feature-filter';
 import Layer from './Layer';
 import GeoJSON from '../geometry/GeoJSON';
 
@@ -16,6 +19,8 @@ import GeoJSON from '../geometry/GeoJSON';
 const options = {
     'drawImmediate' : false
 };
+
+const TEMP_EXTENT = new PointExtent();
 
 /**
  * @classdesc
@@ -152,8 +157,18 @@ class OverlayLayer extends Layer {
      * @param  {*} [context=undefined]  - Function's context, value to use as this when executing function.
      * @return {GeometryCollection} A GeometryCollection with all the geometries that pass the test
      */
-    filter() {
-        return GeometryCollection.prototype.filter.apply(this, arguments);
+    filter(fn, context) {
+        const selected = [];
+        const isFn = isFunction(fn);
+        const filter = isFn ? fn : createFilter(fn);
+
+        this.forEach(geometry => {
+            const g = isFn ? geometry : getFilterFeature(geometry);
+            if (context ? filter.call(context, g) : filter(g)) {
+                selected.push(geometry);
+            }
+        }, this);
+        return selected;
     }
 
     /**
@@ -403,7 +418,7 @@ class OverlayLayer extends Layer {
             hits = [];
         const map = this.getMap();
         const point = map.coordToPoint(coordinate);
-        const cp = map._pointToContainerPoint(point);
+        const cp = map._pointToContainerPoint(point, undefined, 0, point);
         for (let i = geometries.length - 1; i >= 0; i--) {
             const geo = geometries[i];
             if (!geo || !geo.isVisible() || !geo._getPainter() || !geo.options['interactive']) {
@@ -411,9 +426,9 @@ class OverlayLayer extends Layer {
             }
             if (!(geo instanceof LineString) || (!geo._getArrowStyle() && !(geo instanceof Curve))) {
                 // Except for LineString with arrows or curves
-                let extent = geo.getContainerExtent();
+                let extent = geo.getContainerExtent(TEMP_EXTENT);
                 if (tolerance) {
-                    extent = extent.expand(tolerance);
+                    extent = extent._expand(tolerance);
                 }
                 if (!extent || !extent.contains(cp)) {
                     continue;

@@ -337,9 +337,9 @@ class Geometry extends JSONAble(Eventable(Handlerable(Class))) {
      *
      * @returns {PointExtent}
      */
-    getContainerExtent() {
+    getContainerExtent(out) {
         const painter = this._getPainter();
-        return painter ? painter.getContainerExtent() : null;
+        return painter ? painter.getContainerExtent(out) : null;
     }
 
     /**
@@ -361,7 +361,7 @@ class Geometry extends JSONAble(Eventable(Handlerable(Class))) {
      * @example
      * var circle = new Circle([0, 0], 1000)
      *     .addTo(layer);
-     * var contains = circle.containsPoint([400, 300]);
+     * var contains = circle.containsPoint(new maptalks.Point(400, 300));
      */
     containsPoint(containerPoint, t) {
         if (!this.getMap()) {

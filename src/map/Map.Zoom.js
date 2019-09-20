@@ -1,5 +1,4 @@
 import { isNil } from '../core/util';
-import Browser from '../core/Browser';
 import Point from '../geo/Point';
 import Map from './Map';
 
@@ -29,6 +28,9 @@ Map.include(/** @lends Map.prototype */{
         if (!origin || this.options['zoomInCenter']) {
             origin = new Point(this.width / 2, this.height / 2);
         }
+        if (this.options['zoomOrigin']) {
+            origin = new Point(this.options['zoomOrigin']);
+        }
         return origin;
     },
 
@@ -39,7 +41,7 @@ Map.include(/** @lends Map.prototype */{
         const endScale = this._getResolution(this._startZoomVal) / this._getResolution(nextZoom);
         const duration = this.options['zoomAnimationDuration'] * Math.abs(endScale - startScale) / Math.abs(endScale - 1);
         this._frameZoom = this._startZoomVal;
-        this.animateTo({
+        this._animateTo({
             'zoom' : nextZoom,
             'around' : origin
         }, {
@@ -50,6 +52,9 @@ Map.include(/** @lends Map.prototype */{
 
     onZoomStart(nextZoom, origin) {
         if (!this.options['zoomable'] || this.isZooming()) { return; }
+        if (this._mapAnimPlayer) {
+            this._stopAnim(this._mapAnimPlayer);
+        }
         this._zooming = true;
         this._startZoomVal = this.getZoom();
         this._startZoomCoord = this._containerPointToPrj(origin);
@@ -94,8 +99,9 @@ Map.include(/** @lends Map.prototype */{
         const matrix = {
             'view' : [scale, 0, 0, scale, (origin.x - offset.x) *  (1 - scale), (origin.y - offset.y) *  (1 - scale)]
         };
-        if (Browser.retina) {
-            origin = origin.multi(2);
+        const dpr = this.getDevicePixelRatio();
+        if (dpr !== 1) {
+            origin = origin.multi(dpr);
         }
         matrix['container'] = [scale, 0, 0, scale, origin.x * (1 - scale), origin.y *  (1 - scale)];
         /**
@@ -128,8 +134,8 @@ Map.include(/** @lends Map.prototype */{
           * @property {Number} to                      - zoom level zooming to
           */
         this._fireEvent('zoomend', { 'from' : startZoomVal, 'to': nextZoom });
-        if (!this._verifyExtent(this.getCenter())) {
-            this.panTo(this.getMaxExtent().getCenter());
+        if (!this._verifyExtent(this._getPrjCenter())) {
+            this._panTo(this._prjMaxExtent.getCenter());
         }
     },
 

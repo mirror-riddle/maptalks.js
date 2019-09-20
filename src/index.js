@@ -1,3 +1,4 @@
+import { version } from '../package.json';
 export * from './core/Constants';
 export { default as Browser } from './core/Browser';
 import * as Util from './core/util';
@@ -7,6 +8,7 @@ import * as MapboxUtil from './core/mapbox';
 export { Util, DomUtil, StringUtil, MapboxUtil };
 export { default as Ajax } from './core/Ajax';
 export { default as Canvas } from './core/Canvas';
+export { default as Promise } from './core/Promise';
 
 // core classes
 export { default as Class } from './core/Class';
@@ -20,7 +22,9 @@ export { default as DragHandler } from './handler/Drag';
 // geo classes
 export * from './geo';
 
-export * from './map';
+import { Map } from './map';
+Map.VERSION = version;
+export { Map };
 
 export { MapTool, DrawTool, AreaTool, DistanceTool } from './map/tool';
 export { default as SpatialReference } from './map/spatial-reference/SpatialReference';

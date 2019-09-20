@@ -362,12 +362,12 @@ const Canvas = {
         }
     },
 
-    fillText(ctx, text, point, rgba) {
+    fillText(ctx, text, pt, rgba) {
         ctx.canvas._drawn = true;
         if (rgba) {
             ctx.fillStyle = rgba;
         }
-        ctx.fillText(text, Math.round(point.x), Math.round(point.y));
+        ctx.fillText(text, Math.round(pt.x), Math.round(pt.y));
     },
 
     _stroke(ctx, strokeOpacity, x, y) {
@@ -416,7 +416,13 @@ const Canvas = {
         function fillWithPattern(p1, p2) {
             const degree = computeDegree(p1.x, p1.y, p2.x, p2.y);
             ctx.save();
-            ctx.translate(p1.x, p1.y - ctx.lineWidth / 2 / Math.cos(degree));
+            const cosd = Math.cos(degree);
+            if (Math.abs(cosd) < 1E-7) {
+                //a vertical line
+                ctx.translate(p1.x - ctx.lineWidth / 2, p1.y);
+            } else {
+                ctx.translate(p1.x, p1.y - ctx.lineWidth / 2 / cosd);
+            }
             ctx.rotate(degree);
             Canvas._stroke(ctx, lineOpacity);
             ctx.restore();
@@ -809,10 +815,11 @@ const Canvas = {
 
     rectangle(ctx, pt, size, lineOpacity, fillOpacity) {
         // pt = pt._round();
+        const { x, y } = pt;
         ctx.beginPath();
-        ctx.rect(pt.x, pt.y, size['width'], size['height']);
-        Canvas.fillCanvas(ctx, fillOpacity, pt.x, pt.y);
-        Canvas._stroke(ctx, lineOpacity, pt.x, pt.y);
+        ctx.rect(x, y, size['width'], size['height']);
+        Canvas.fillCanvas(ctx, fillOpacity, x, y);
+        Canvas._stroke(ctx, lineOpacity, x, y);
     },
 
     sector(ctx, pt, size, angles, lineOpacity, fillOpacity) {
@@ -837,15 +844,15 @@ const Canvas = {
         return !isString(style) && !('addColorStop' in style);
     },
 
-    drawCross(ctx, p, lineWidth, color) {
+    drawCross(ctx, x, y, lineWidth, color) {
         ctx.canvas._drawn = true;
         ctx.strokeStyle = color;
         ctx.lineWidth = lineWidth;
         ctx.beginPath();
-        ctx.moveTo(p.x - 5, p.y);
-        ctx.lineTo(p.x + 5, p.y);
-        ctx.moveTo(p.x, p.y - 5);
-        ctx.lineTo(p.x, p.y + 5);
+        ctx.moveTo(x - 5, y);
+        ctx.lineTo(x + 5, y);
+        ctx.moveTo(x, y - 5);
+        ctx.lineTo(x, y + 5);
         ctx.stroke();
     },
 

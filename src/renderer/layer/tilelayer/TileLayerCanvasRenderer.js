@@ -5,13 +5,16 @@ import {
     now,
     isFunction
 } from '../../../core/util';
-import Browser from '../../../core/Browser';
 import Canvas2D from '../../../core/Canvas';
 import TileLayer from '../../../layer/tile/TileLayer';
 import CanvasRenderer from '../CanvasRenderer';
 import Point from '../../../geo/Point';
 import LruCache from '../../../core/util/LruCache';
 import Canvas from '../../../core/Canvas';
+
+const TEMP_POINT = new Point(0, 0);
+const TEMP_POINT1 = new Point(0, 0);
+const TEMP_POINT2 = new Point(0, 0);
 
 /**
  * @classdesc
@@ -106,12 +109,12 @@ class TileLayerCanvasRenderer extends CanvasRenderer {
                     }
                 }
                 if (!tileLoading) continue;
-                if (checkedTiles[tile.dupKey]) {
+                if (checkedTiles[tileId]) {
                     continue;
                 }
 
-                checkedTiles[tile.dupKey] = 1;
-                if (placeholder && !placeholderKeys[tile.dupKey]) {
+                checkedTiles[tileId] = 1;
+                if (placeholder && !placeholderKeys[tileId]) {
                     //tell gl renderer not to bind gl buffer with image
                     tile.cache = false;
                     placeholders.push({
@@ -119,26 +122,26 @@ class TileLayerCanvasRenderer extends CanvasRenderer {
                         info : tile
                     });
 
-                    placeholderKeys[tile.dupKey] = 1;
+                    placeholderKeys[tileId] = 1;
                 }
 
                 const parentTile = this._findParentTile(tile);
                 if (parentTile) {
-                    const dupKey = parentTile.info.dupKey;
-                    if (parentKeys[dupKey] === undefined) {
-                        parentKeys[dupKey] = parentTiles.length;
+                    const parentId = parentTile.info.id;
+                    if (parentKeys[parentId] === undefined) {
+                        parentKeys[parentId] = parentTiles.length;
                         parentTiles.push(parentTile);
                     }/* else {
                         //replace with parentTile of above tiles
-                        parentTiles[parentKeys[dupKey]] = parentTile;
+                        parentTiles[parentKeys[parentId]] = parentTile;
                     } */
-                } else {
+                } else if (!parentTiles.length) {
                     const children = this._findChildTiles(tile);
                     if (children.length) {
                         children.forEach(c => {
-                            if (!childKeys[c.info.dupKey]) {
+                            if (!childKeys[c.info.id]) {
                                 childTiles.push(c);
-                                childKeys[c.info.dupKey] = 1;
+                                childKeys[c.info.id] = 1;
                             }
                         });
                     }
@@ -146,6 +149,10 @@ class TileLayerCanvasRenderer extends CanvasRenderer {
             }
         }
 
+        if (parentTiles.length) {
+            childTiles.length = 0;
+            this._childTiles.length = 0;
+        }
         this._drawTiles(tiles, parentTiles, childTiles, placeholders);
         if (!loadingCount) {
             if (!loading) {
@@ -164,7 +171,7 @@ class TileLayerCanvasRenderer extends CanvasRenderer {
     }
 
     isTileCachedOrLoading(tileId) {
-        return this.tilesLoading[tileId] || this.tilesInView[tileId] || this.tileCache.has(tileId);
+        return this.tilesLoading[tileId] || this.tilesInView[tileId] || this.tileCache.get(tileId);
     }
 
     _drawTiles(tiles, parentTiles, childTiles, placeholders) {
@@ -177,7 +184,7 @@ class TileLayerCanvasRenderer extends CanvasRenderer {
             this._childTiles = childTiles;
         }
 
-        const context = { tiles, parentTiles, childTiles };
+        const context = { tiles, parentTiles: this._parentTiles, childTiles: this._childTiles };
         this.onDrawTileStart(context);
 
         this._parentTiles.forEach(t => this._drawTileAndCache(t));
@@ -323,7 +330,7 @@ class TileLayerCanvasRenderer extends CanvasRenderer {
             return false;
         }
         const clipExtent = map.getContainerExtent();
-        const r = Browser.retina ? 2 : 1;
+        const r = map.getDevicePixelRatio();
         ctx.save();
         ctx.strokeStyle = 'rgba(0, 0, 0, 0)';
         ctx.beginPath();
@@ -417,7 +424,7 @@ class TileLayerCanvasRenderer extends CanvasRenderer {
             return;
         }
         if (tileImage instanceof Image) {
-            this.abortTileLoading(tileImage);
+            this.abortTileLoading(tileImage, tileInfo);
         }
         tileImage.loadTime = 0;
         delete this.tilesLoading[tileInfo['id']];
@@ -446,7 +453,7 @@ class TileLayerCanvasRenderer extends CanvasRenderer {
             tileSize = tileInfo.size,
             zoom = map.getZoom(),
             ctx = this.context,
-            cp = map._pointToContainerPoint(point, tileZoom),
+            cp = map._pointToContainerPoint(point, tileZoom, 0, TEMP_POINT),
             bearing = map.getBearing(),
             transformed = bearing || zoom !== tileZoom;
         const opacity = this.getTileOpacity(tileImage);
@@ -462,8 +469,8 @@ class TileLayerCanvasRenderer extends CanvasRenderer {
             y = cp.y;
         let w = tileSize[0], h = tileSize[1];
         if (transformed) {
-            w++;
-            h++;
+            w += 0.1;
+            h += 0.1;
             ctx.save();
             ctx.translate(x, y);
             if (bearing) {
@@ -477,17 +484,18 @@ class TileLayerCanvasRenderer extends CanvasRenderer {
         }
         Canvas2D.image(ctx, tileImage, x, y, w, h);
         if (this.layer.options['debug']) {
-            const p = new Point(x, y),
-                color = this.layer.options['debugOutline'],
-                xyz = tileId.split('__');
+            const color = this.layer.options['debugOutline'],
+                xyz = tileId.split('-');
+            const length = xyz.length;
             ctx.save();
             ctx.strokeStyle = color;
             ctx.fillStyle = color;
             ctx.strokeWidth = 10;
             ctx.font = '15px monospace';
-            Canvas2D.rectangle(ctx, p, tileSize, 1, 0);
-            Canvas2D.fillText(ctx, 'x:' + xyz[2] + ', y:' + xyz[1] + ', z:' + xyz[3], p.add(10, 20), color);
-            Canvas2D.drawCross(ctx, p.add(w / 2, h / 2), 2, color);
+            const point = new Point(x, y);
+            Canvas2D.rectangle(ctx, point, { width: w, height: h }, 1, 0);
+            Canvas2D.fillText(ctx, 'x:' + xyz[length - 3] + ', y:' + xyz[length - 2] + ', z:' + xyz[length - 1], point._add(10, 20), color);
+            Canvas2D.drawCross(ctx, x + w / 2, y + h / 2, 2, color);
             ctx.restore();
         }
         if (transformed) {
@@ -508,9 +516,9 @@ class TileLayerCanvasRenderer extends CanvasRenderer {
         const children = [];
         const min = info.extent2d.getMin(),
             max = info.extent2d.getMax(),
-            pmin = layer._project(map._pointToPrj(min, info.z)),
-            pmax = layer._project(map._pointToPrj(max, info.z));
-        const zoomDiff = 3;
+            pmin = layer._project(map._pointToPrj(min, info.z, TEMP_POINT1), TEMP_POINT1),
+            pmax = layer._project(map._pointToPrj(max, info.z, TEMP_POINT2), TEMP_POINT2);
+        const zoomDiff = 2;
         for (let i = 1; i < zoomDiff; i++) {
             this._findChildTilesAt(children, pmin, pmax, layer, info.z + i);
         }
@@ -581,7 +589,8 @@ class TileLayerCanvasRenderer extends CanvasRenderer {
             const tilesLoading = this.tilesLoading;
             if (tilesLoading && tilesLoading[tileId]) {
                 tilesLoading[tileId].current = false;
-                this.abortTileLoading(tilesLoading[tileId]);
+                const { image, info } = tilesLoading[tileId];
+                this.abortTileLoading(image, info);
                 delete tilesLoading[tileId];
             }
         } else {
@@ -636,7 +645,7 @@ class TileLayerCanvasRenderer extends CanvasRenderer {
             if (force || !tile.current) {
                 // abort loading tiles
                 if (tile.image) {
-                    this.abortTileLoading(tile.image);
+                    this.abortTileLoading(tile.image, tile.info);
                 }
                 this.deleteTile(tile);
                 delete this.tilesLoading[i];

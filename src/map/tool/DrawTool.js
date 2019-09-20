@@ -12,6 +12,7 @@ import MapTool from './MapTool';
  * @property {String} [options.mode=null]   - mode of the draw tool
  * @property {Object} [options.symbol=null] - symbol of the geometries drawn
  * @property {Boolean} [options.once=null]  - whether disable immediately once drawn a geometry.
+ * @property {Boolean} [options.autoPanAtEdge=false]  - Whether to make edge judgement or not.
  * @memberOf DrawTool
  * @instance
  */
@@ -23,10 +24,11 @@ const options = {
         'polygonFill': '#fff',
         'polygonOpacity': 0.3
     },
-    'doubleClickZoom' : false,
+    'doubleClickZoom': false,
     'mode': null,
     'once': false,
-    'ignoreMouseleave' : true
+    'autoPanAtEdge': false,
+    'ignoreMouseleave': true
 };
 
 const registeredMode = {};
@@ -88,6 +90,7 @@ class DrawTool extends MapTool {
      * @param {String} [options.mode=null]   - mode of the draw tool
      * @param {Object} [options.symbol=null] - symbol of the geometries drawn
      * @param {Boolean} [options.once=null]  - whether disable immediately once drawn a geometry.
+     * @param {Boolean} [options.autoPanAtEdge=false]  - Whether to make edge judgement or not.
      */
     constructor(options) {
         super(options);
@@ -185,6 +188,13 @@ class DrawTool extends MapTool {
         this._drawToolLayer = this._getDrawLayer();
         this._clearStage();
         this._loadResources();
+        if (this.options['autoPanAtEdge']) {
+            const map = this.getMap();
+            this._mapAutoPanAtEdge = map.options['autoPanAtEdge'];
+            if (!this._mapAutoPanAtEdge) {
+                map.config({ autoPanAtEdge: true });
+            }
+        }
         return this;
     }
 
@@ -194,6 +204,11 @@ class DrawTool extends MapTool {
         this.endDraw();
         if (this._map) {
             map.removeLayer(this._getDrawLayer());
+            if (this.options['autoPanAtEdge']) {
+                if (!this._mapAutoPanAtEdge) {
+                    map.config({ autoPanAtEdge: false });
+                }
+            }
         }
         return this;
     }
@@ -338,6 +353,7 @@ class DrawTool extends MapTool {
             }
             this._clickCoords.push(coordinate);
             this._historyPointer = this._clickCoords.length;
+            event.drawTool = this;
             if (registerMode['clickLimit'] && registerMode['clickLimit'] === this._historyPointer) {
                 registerMode['update']([coordinate], this._geometry, event);
                 this.endDraw(event);
@@ -373,6 +389,7 @@ class DrawTool extends MapTool {
         const symbol = this.getSymbol();
         if (!this._geometry) {
             this._clickCoords = [coordinate];
+            event.drawTool = this;
             this._geometry = registerMode['create'](this._clickCoords, event);
             if (symbol && mode !== 'point') {
                 this._geometry.setSymbol(symbol);
@@ -399,6 +416,7 @@ class DrawTool extends MapTool {
         }
     }
 
+
     /**
      * handle mouse move event
      * @param event
@@ -414,6 +432,7 @@ class DrawTool extends MapTool {
         if (!this._isValidContainerPoint(containerPoint)) {
             return;
         }
+        event.drawTool = this;
         const registerMode = this._getRegisterMode();
         if (this._shouldRecordHistory(registerMode.action)) {
             const path = this._clickCoords.slice(0, this._historyPointer);
@@ -468,6 +487,7 @@ class DrawTool extends MapTool {
         if (path.length < 2 || (this._geometry && (this._geometry instanceof Polygon) && path.length < 3)) {
             return;
         }
+        event.drawTool = this;
         registerMode['update'](path, this._geometry, event);
         this.endDraw(event);
     }
@@ -562,7 +582,7 @@ class DrawTool extends MapTool {
             param = {};
         }
         if (this._geometry) {
-            param['geometry'] = this._getRegisterMode()['generate'](this._geometry).copy();
+            param['geometry'] = this._getRegisterMode()['generate'](this._geometry, { drawTool: this }).copy();
         }
         MapTool.prototype._fireEvent.call(this, eventName, param);
     }

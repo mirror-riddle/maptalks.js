@@ -69,6 +69,8 @@ class MapCanvasRenderer extends MapRenderer {
         const offset = map._getViewPointFrameOffset();
         if (offset) {
             map.offsetPlatform(offset);
+        } else if (this.domChanged()) {
+            this.offsetPlatform(null, true);
         }
     }
 
@@ -108,13 +110,14 @@ class MapCanvasRenderer extends MapRenderer {
                 }
                 this.setLayerCanvasUpdated();
             }
-            delete renderer.__shouldZoomTransform;
+            const transformMatrix = renderer.__zoomTransformMatrix;
+            delete renderer.__zoomTransformMatrix;
             if (!needsRedraw) {
                 if (isCanvas && isInteracting) {
                     if (map.isZooming() && !map.getPitch()) {
                         // transform layer's current canvas when zooming
                         renderer.prepareRender();
-                        renderer.__shouldZoomTransform = true;
+                        renderer.__zoomTransformMatrix = this._zoomMatrix;
                     } else if (map.getPitch() || map.isRotating()) {
                         // when map is pitching or rotating, clear the layer canvas
                         // otherwise, leave layer's canvas unchanged
@@ -139,6 +142,11 @@ class MapCanvasRenderer extends MapRenderer {
             } else {
                 // map is not interacting, call layer's render
                 renderer.render(framestamp);
+                //地图缩放完以后，如果下一次render需要载入资源，仍需要设置transformMatrix
+                //防止在资源载入完成之前，缺少transformMatrix导致的绘制错误
+                if (isCanvas && transformMatrix && renderer.isLoadingResource()) {
+                    renderer.__zoomTransformMatrix = transformMatrix;
+                }
             }
 
             if (isCanvas) {
@@ -201,9 +209,9 @@ class MapCanvasRenderer extends MapRenderer {
             renderer.render(framestamp);
         } else if (renderer.drawOnInteracting &&
             (layer === map.getBaseLayer() || inTime ||
-            map.isZooming() && layer.options['forceRenderOnZooming'] ||
-            map.isMoving() && layer.options['forceRenderOnMoving'] ||
-            map.isRotating() && layer.options['forceRenderOnRotating'])
+                map.isZooming() && layer.options['forceRenderOnZooming'] ||
+                map.isMoving() && layer.options['forceRenderOnMoving'] ||
+                map.isRotating() && layer.options['forceRenderOnRotating'])
         ) {
             // call drawOnInteracting to redraw the layer
             renderer.prepareRender();
@@ -217,7 +225,7 @@ class MapCanvasRenderer extends MapRenderer {
             // then:
             // transform layer's current canvas when zooming
             renderer.prepareRender();
-            renderer.__shouldZoomTransform = true;
+            renderer.__zoomTransformMatrix = this._zoomMatrix;
         } else if (map.getPitch() || map.isRotating()) {
             // when map is pitching or rotating, clear the layer canvas
             // otherwise, leave layer's canvas unchanged
@@ -428,6 +436,11 @@ class MapCanvasRenderer extends MapRenderer {
             if (renderer.isBlank && renderer.isBlank()) {
                 continue;
             }
+            // renderer.hitDetect(point)) .  This can't ignore the shadows.
+            /**
+             * TODO
+             *  This requires a better way to judge
+             */
             if (layer.options['cursor'] !== 'default' && renderer.hitDetect(point)) {
                 cursor = layer.options['cursor'] || 'pointer';
                 break;
@@ -494,9 +507,12 @@ class MapCanvasRenderer extends MapRenderer {
 
         mapAllLayers.appendChild(backStatic);
         back.appendChild(backLayer);
+        back.layerDOM = backLayer;
         mapAllLayers.appendChild(back);
         mapAllLayers.appendChild(canvasContainer);
         front.appendChild(frontLayer);
+        front.layerDOM = frontLayer;
+        front.uiDOM = ui;
         mapAllLayers.appendChild(frontStatic);
         mapAllLayers.appendChild(front);
         front.appendChild(ui);
@@ -574,8 +590,9 @@ class MapCanvasRenderer extends MapRenderer {
     _drawLayerCanvasImage(layer, layerImage) {
         const ctx = this.context;
         const point = layerImage['point'].round();
-        if (Browser.retina) {
-            point._multi(2);
+        const dpr = this.map.getDevicePixelRatio();
+        if (dpr !== 1) {
+            point._multi(dpr);
         }
         const canvasImage = layerImage['image'];
         const width = canvasImage.width, height = canvasImage.height;
@@ -608,11 +625,10 @@ class MapCanvasRenderer extends MapRenderer {
         if (layer.options['cssFilter']) {
             ctx.filter = layer.options['cssFilter'];
         }
-        const matrix = this._zoomMatrix;
-        const shouldTransform = !!layer._getRenderer().__shouldZoomTransform;
         const renderer = layer.getRenderer();
+        const matrix = renderer.__zoomTransformMatrix;
         const clipped = renderer.clipCanvas(this.context);
-        if (matrix && shouldTransform) {
+        if (matrix) {
             ctx.save();
             ctx.setTransform.apply(ctx, matrix);
         }
@@ -631,7 +647,7 @@ class MapCanvasRenderer extends MapRenderer {
         }*/
 
         ctx.drawImage(canvasImage, 0, 0, width, height, point.x, point.y, width, height);
-        if (matrix && shouldTransform) {
+        if (matrix) {
             ctx.restore();
         }
         if (clipped) {
@@ -651,7 +667,7 @@ class MapCanvasRenderer extends MapRenderer {
             if (isFunction(cross)) {
                 cross(ctx, p);
             } else {
-                Canvas2D.drawCross(this.context, p, 2, '#f00');
+                Canvas2D.drawCross(this.context, p.x, p.y, 2, '#f00');
             }
         }
     }
@@ -661,8 +677,8 @@ class MapCanvasRenderer extends MapRenderer {
         if (map.getPitch() <= map.options['maxVisualPitch'] || !map.options['fog']) {
             return;
         }
-        const fogThickness = 30,
-            r = Browser.retina ? 2 : 1;
+        const fogThickness = 30;
+        const r = map.getDevicePixelRatio();
         const ctx = this.context,
             clipExtent = map.getContainerExtent();
         let top = (map.height - map._getVisualHeight(75)) * r;
@@ -699,7 +715,7 @@ class MapCanvasRenderer extends MapRenderer {
         const map = this.map,
             mapSize = map.getSize(),
             canvas = this.canvas,
-            r = Browser.retina ? 2 : 1;
+            r = map.getDevicePixelRatio();
         if (mapSize['width'] * r === canvas.width && mapSize['height'] * r === canvas.height) {
             return false;
         }
@@ -752,7 +768,7 @@ class MapCanvasRenderer extends MapRenderer {
         const map = this.map;
 
         if (map.options['checkSize'] && !IS_NODE && (typeof window !== 'undefined')) {
-            this._setCheckSizeInterval(1000);
+            this._setCheckSizeInterval(map.options['checkSizeInterval']);
         }
         if (!Browser.mobile) {
             map.on('_mousemove', this._onMapMouseMove, this);

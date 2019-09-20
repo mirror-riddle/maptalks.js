@@ -1,6 +1,9 @@
 import { getExternalResources } from '../../../core/util/resource';
 import VectorLayer from '../../../layer/VectorLayer';
 import OverlayLayerCanvasRenderer from './OverlayLayerCanvasRenderer';
+import PointExtent from '../../../geo/PointExtent';
+
+const TEMP_EXTENT = new PointExtent();
 
 /**
  * @classdesc
@@ -78,11 +81,25 @@ class VectorLayerRenderer extends OverlayLayerCanvasRenderer {
             return;
         }
         this._updateDisplayExtent();
+        const map = this.getMap();
+        //refresh geometries on zooming
+        const count = this.layer.getCount();
+        if (map.isZooming() &&
+            map.options['seamlessZoom'] &&
+            this._geosToDraw.length < count) {
+            const res = this.getMap().getResolution();
+            if (this._drawnRes !== undefined && res > this._drawnRes * 1.5) {
+                this.prepareToDraw();
+                this.forEachGeo(this.checkGeo, this);
+                this._drawnRes = res;
+            }
+        }
         for (let i = 0, l = this._geosToDraw.length; i < l; i++) {
-            if (!this._geosToDraw[i].isVisible()) {
+            const geo = this._geosToDraw[i];
+            if (!geo.isVisible()) {
                 continue;
             }
-            this._geosToDraw[i]._paint(this._displayExtent);
+            geo._paint(this._displayExtent);
         }
     }
 
@@ -102,6 +119,7 @@ class VectorLayerRenderer extends OverlayLayerCanvasRenderer {
     }
 
     drawGeos() {
+        this._drawnRes = this.getMap().getResolution();
         this._updateDisplayExtent();
         this.prepareToDraw();
 
@@ -122,8 +140,8 @@ class VectorLayerRenderer extends OverlayLayerCanvasRenderer {
             return;
         }
 
-        const painter = geo._getPainter(),
-            extent2D = painter.get2DExtent(this.resources);
+        const painter = geo._getPainter();
+        const extent2D = painter.get2DExtent(this.resources, TEMP_EXTENT);
         if (!extent2D || !extent2D.intersects(this._displayExtent)) {
             return;
         }
